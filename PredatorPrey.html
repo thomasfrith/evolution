@@ -1,0 +1,541 @@
+<h>Predator Prey</h>
+
+<p>Predators hunt prey while prey graze on the pastures. When they are strong enough, they look for an equally strong partner to mate with and pass on their characteristics.</p>
+<p id="out"></p>
+<button type="button" id="start" onclick="start()">Start</button>
+<button type="button" id="stop" onclick="pause()">Pause</button>
+<button type="button" id="up" onclick="up()">Speed Up</button>
+<button type="button" id="down" onclick="down()">Slow Down</button>
+<canvas id="PPcan"></canvas>
+<p id="statsPredator"></p>
+<p id="statsPrey"></p>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.js"></script>
+<canvas id="myChart" style="height:100%;max-height:80px;width:100%;max-width:1300px"></canvas>
+
+
+<script>
+xValues = [];
+prey_pop = [];
+predator_pop = [];
+graph = false;
+function showGraph(){
+	var x = document.getElementById("myChart");
+	if(graph == false){
+		graph = true;
+		x.style.display = "block";
+	} else if(graph == true){
+		graph = false;
+		x.style.display = "none";
+	}
+}
+// canvas width and height
+
+var width = 13;
+var height = 5;
+
+var c = document.getElementById("PPcan");
+var ctx = c.getContext("2d");
+
+// display factor
+h = 100;
+
+c.height = height*h;
+c.width = width*h;
+//time step
+dt = 0;
+function pause(){
+	dt = 0;
+}
+function start(){
+	dt = 0.05;
+}
+function up(){
+	dt = Math.min(dt+0.01,0.05)
+}
+function down(){
+	dt = Math.max(dt-0.01,0)
+}
+t = 0;
+
+var animation = window.requestAnimationFrame;
+
+// define the land the animals live on
+class Land {
+	constructor(){
+		this._munch = 1;
+		this._eat_rate = 0.5;
+		this._grow_rate = 0.4;
+	}
+	eat(mass){
+		if(this._munch>0){
+			this._munch -= dt*mass*this._eat_rate;
+		}
+	}
+
+	grow(){
+		if(this._munch<1){
+			this._munch += dt*this._grow_rate;
+		}
+	}
+
+	get eat_rate(){
+		return this._eat_rate;
+	}
+
+	get munch(){
+		return this._munch;
+	}
+
+	draw(i,j){
+		var grd = ctx.createLinearGradient(h*(i-(this.munch)*width),h*j,h*(i+width-(this.munch)*width),h*j);
+		grd.addColorStop(1,"green");
+		grd.addColorStop(0,"brown");
+
+		// Fill with gradient
+		ctx.beginPath();
+		ctx.fillStyle = grd;
+		ctx.fillRect(h*i,h*j,h,h);
+		ctx.stroke();
+	}
+}
+
+// define animal class
+class Animal {
+	constructor(fov,smell,wander,mass,wander_speed,hunt_speed,x_position,y_position){
+		this._energy = mass;
+		this._mass = mass;
+		this._age = 0;
+
+		this._hunt_speed = hunt_speed;
+		this._wander_speed = wander_speed;
+		this._speed = this._wander_speed;
+
+		this._x_position = x_position;
+		this._y_position = y_position;
+		this._direction = Math.random()*2*Math.PI;
+
+		this._wander = 0.01;
+		this._hunt = false;
+		this._reproduce = false;
+
+		this._fov = fov;
+		this._smell = smell;
+	
+		this._size = Math.ceil(this._mass*10);
+	}
+
+	move(){
+		this._x_position += dt*this._speed*Math.cos(this._direction);
+		this._y_position += dt*this._speed*Math.sin(this._direction);
+		if(this._x_position>h*width){
+			this._x_position = 0;
+		}
+		if(this._x_position<0){
+			this._x_position = h*width-1;
+		}
+		if(this._y_position>h*height){
+			this._y_position = 0;
+		}
+		if(this._y_position<0){
+			this._y_position = h*height-1;
+		}
+	}
+
+	wander(){
+		this._speed = this._wander_speed;
+		if(Math.random()<this._wander){
+			this._direction = Math.random()*2*Math.PI;
+		}	
+		this.move();
+
+	}
+
+	sniff(animals,mate){
+		this._hunt = false;
+		var min_dist = Math.max(h*width,h*height);
+		var min_location = 0;
+		var min_angle = 0;
+		for(let i=0;i<animals.length;i++){
+			if(Math.abs(this._x_position-animals[i]._x_position)<h*width-Math.abs(this._x_position-animals[i]._x_position)){
+				var x_sep = this._x_position-animals[i]._x_position;
+			} else if(this._x_position-animals[i]._x_position<0){
+				var x_sep = (this._x_position-animals[i]._x_position)+h*width;
+			} else {
+				var x_sep = (this._x_position-animals[i]._x_position)-h*width;
+			}
+			if(Math.abs(this._y_position-animals[i]._y_position)<h*height-Math.abs(this._y_position-animals[i]._y_position)){
+				var y_sep = this._y_position-animals[i]._y_position;
+			} else if(this._y_position-animals[i]._y_position<0){
+				var y_sep = (this._y_position-animals[i]._y_position)+h*height;
+			} else {
+				var y_sep = (this._y_position-animals[i]._y_position)-h*height;
+			}
+
+			var animal_separation = Math.sqrt(Math.pow(x_sep,2)+Math.pow(y_sep,2));
+			var animal_bearing = Math.atan2(-y_sep,-x_sep);
+			if(animal_bearing<0){animal_bearing + 2*Math.PI};
+			
+			var angle = Math.abs(animal_bearing-this._direction);
+			if(angle>Math.PI){angle = 2*Math.PI - angle};
+			
+			
+			if(animal_separation<this._smell && angle<this._fov/2 && animal_separation<min_dist && mate == false){
+				min_dist = animal_separation;
+				min_location = i;
+				min_angle = animal_bearing;
+				this._hunt = true;
+			}
+
+			if(animal_separation<min_dist && mate == true){
+				min_dist = animal_separation;
+				min_location = i;
+				min_angle = animal_bearing;
+			}
+		}
+		if(animals[min_location]._energy>2*animals[min_location]._mass && mate == true){
+			this._hunt = true;
+			this.hunt(min_dist, min_angle,min_location);
+		} else if(mate == false && this._hunt == true){
+			this.hunt(min_dist, min_angle,min_location);
+		}
+			
+		
+	}
+
+	hunt(animal_separation, animal_bearing,i){
+		this._dist = animal_separation;
+		this._angle = animal_bearing;
+		this._animal = i;
+	}
+
+	energy(i,animals,energy_rate){
+		this._energy -= dt*energy_rate*(this._size*this._speed + 0.5*this._fov*this._smell*this._smell);
+		//this._energy = Math.min(this._energy,3*this._mass);
+		if(this._energy<=0.8*this._mass){
+			this.die(i,animals);
+		}	
+	
+	}
+
+	die(i,animals){
+		animals.splice(i,1);	
+	}
+
+	draw(size,colour){
+		ctx.fillStyle = colour;
+		ctx.beginPath();
+		ctx.arc(this._x_position,this._y_position,size,0,2*Math.PI)
+		ctx.fill();
+		ctx.stroke();
+	}
+
+
+}
+
+//define predator class and prey class
+class Predator extends Animal {
+	constructor(fov,smell,wander,mass,wander_speed,hunt_speed,x_position,y_position){
+		super(fov,smell,wander,mass,wander_speed,hunt_speed,x_position,y_position);
+		this._colour = "#FF0000";
+
+		this._energy_rate = 0.000005;
+		// evolution parameter (how different to make each variable upon reproduction);
+		this._evo = 0.1;
+
+		this._kill = 1-Math.exp(-this._mass);
+	}
+	draw(){
+		super.draw(this._size,this._colour);
+	}
+	sniff(animals){
+		super.sniff(animals,false);
+		if(this._hunt == true && this._energy<3*this._mass){
+			this._direction = this._angle;
+			this._speed = this._hunt_speed;
+			if(this._dist<this._size){
+				var kill_prob = Math.sqrt((1-animals[this._animal]._escape)*this._kill);
+				if(Math.random()<kill_prob){
+					this._energy += animals[this._animal]._mass;
+					super.die(this._animal,animals);
+				} else {
+					if(this._direction>Math.PI){
+						this._direction = this._direction - Math.PI;
+					} else {
+						this._direction = this._direction + Math.PI;
+					}
+				}
+			}
+			super.move();
+		} else {
+			super.wander()
+		}
+	}
+
+	reproduce(i,animals){
+		var mates = Array.from(animals);
+		mates.splice(i,1);
+		super.sniff(mates,true)
+		if(this._hunt == true){
+			this._direction = this._angle;
+			this._speed = this._hunt_speed;
+			if(this._dist<this._size){
+				var new_fov = Math.random() < 0.5 ? this._fov : animals[this._animal]._fov;
+				var new_smell = Math.random() < 0.5 ? this._smell : animals[this._animal]._smell;
+				var new_wander = Math.random() < 0.5 ? this._wander : animals[this._animal]._wander;
+				var new_mass = Math.random() < 0.5 ? this._mass : animals[this._animal]._mass;
+				var new_wander_speed = Math.random() < 0.5 ? this._wander_speed : animals[this._animal]._wander_speed;
+				var new_hunt_speed = Math.random() < 0.5 ? this._hunt_speed : animals[this._animal]._hunt_speed;
+				var evo_param = [new_fov,new_smell,new_wander,new_mass,new_wander_speed,new_hunt_speed].map(num => num*(1+(Math.random()-0.5)*this._evo));
+				animals.push(new Predator(Math.min(evo_param[0],2*Math.PI),evo_param[1],evo_param[2],evo_param[3],evo_param[4],evo_param[5],this._x_position,this._y_position));
+				this._energy = this._mass;
+				mates[this._animal]._energy = mates[this._animal]._mass;
+			}
+			super.move();
+		} else {
+			this.sniff(prey)
+		}
+	}
+
+	live(i,predators,prey){
+		this._age += 1;
+		if(this._energy > 2*this._mass && predators.length>1){
+			//this._colour = "#FFF000";
+			this.reproduce(i,predators);
+		} else if(prey.length>0) {
+			//this._colour = "#FF0000";
+			this.sniff(prey);
+		} else {
+			super.wander();
+		}
+		super.energy(i,predators,this._energy_rate);
+	}
+
+}
+
+class Prey extends Animal {
+	constructor(fov,smell,wander,mass,wander_speed,hunt_speed,x_position,y_position){
+		super(fov,smell,wander,mass,wander_speed,hunt_speed,x_position,y_position);
+		this._colour = "#FFFFFF";
+
+		this._energy_rate = 0.000001;
+		// evolution parameter (how different to make each variable upon reproduction);
+		this._evo = 0.05;
+
+		this._escape = 1-Math.exp(-this._mass);
+	}
+	draw(){
+		super.draw(this._size,this._colour);
+	}
+	sniff(i,animals,land){
+		super.sniff(animals,false);
+		if(this._hunt == true){
+			this._speed = this._hunt_speed;
+			if(this._angle<0){
+				this._direction = this._angle + Math.PI;
+			} else {
+				this._direction = this._angle - Math.PI;
+			}
+			super.move();
+		} else {
+			this.graze(i,land)
+		}
+	}
+
+	graze(i,land){
+		super.wander()
+		land[Math.floor(this._x_position/h)][Math.floor(this._y_position/h)].eat(this._mass)
+		if(land[Math.floor(this._x_position/h)][Math.floor(this._y_position/h)].munch>0.1){
+			this._energy += dt*this._mass*land[Math.floor(this._x_position/h)][Math.floor(this._y_position/h)].eat_rate;
+		}
+	}	
+
+	reproduce(i,animals,predators,land){
+		var mates = Array.from(animals);
+		mates.splice(i,1);
+		super.sniff(mates,true)
+		if(this._hunt == true){
+			this._direction = this._angle;
+			this._speed = this._hunt_speed;
+			if(this._dist<this._size){
+				var new_fov = Math.random() < 0.5 ? this._fov : animals[this._animal]._fov;
+				var new_smell = Math.random() < 0.5 ? this._smell : animals[this._animal]._smell;
+				var new_wander = Math.random() < 0.5 ? this._wander : animals[this._animal]._wander;
+				var new_mass = Math.random() < 0.5 ? this._mass : animals[this._animal]._mass;
+				var new_wander_speed = Math.random() < 0.5 ? this._wander_speed : animals[this._animal]._wander_speed;
+				var new_hunt_speed = Math.random() < 0.5 ? this._hunt_speed : animals[this._animal]._hunt_speed;
+				var evo_param = [new_fov,new_smell,new_wander,new_mass,new_wander_speed,new_hunt_speed].map(num => num*(1+(Math.random()-0.5)*this._evo));
+				animals.push(new Prey(2*Math.PI,evo_param[1],evo_param[2],evo_param[3],evo_param[4],evo_param[5],this._x_position,this._y_position));
+				this._energy = this._mass;
+				mates[this._animal]._energy = mates[this._animal]._mass;
+			}
+			super.move();
+		} else {
+			this.sniff(i,predators,land);
+		}
+	}
+
+	live(i,predators,prey,land){
+		this._age += 1;
+		if(this._energy > 2*this._mass && prey.length>1){
+			//this._colour = "#FF00FF";
+			this.reproduce(i,prey,predators,land);
+		} else {
+			//this._colour = "#FFFFFF";
+			this.sniff(i,predators,land);
+		}		
+		super.energy(i,prey,this._energy_rate);
+	}
+
+}
+
+var starting_predators = 3;
+var predators = new Array(starting_predators);
+
+var starting_prey = 50;
+var prey = new Array(starting_prey);
+
+var land = new Array(width);
+
+for(let i=0;i<starting_predators;i++){
+	predators[i] = new Predator(Math.PI/4,100,0.01,1,100,200,Math.round(h*width*Math.random()),Math.round(h*height*Math.random()));
+}
+
+for(let i=0;i<starting_prey;i++){
+	prey[i] = new Prey(2*Math.PI,110,0.01,0.5,50,70,Math.round(h*width*Math.random()),Math.round(h*height*Math.random()));
+}
+
+for(let i=0; i<width; i++){
+	land[i] = new Array(height);
+}
+
+for(let i=0; i<width; i++){
+	for(let j=0; j<height; j++){
+		land[i][j] = new Land();
+	}
+}
+
+function drawPredPrey(){
+
+ctx.clearRect(0,0,width,height);
+
+for(let i=0; i<width; i++){
+	for(let j=0; j<height; j++){
+		land[i][j].draw(i,j);
+		land[i][j].grow();
+	}
+}
+
+var predator_ave_hunt_speed = 0;
+var predator_ave_wander_speed = 0;
+var predator_ave_fov = 0;
+var predator_ave_smell = 0;
+var predator_ave_wander = 0;
+var predator_ave_mass = 0;
+
+for(let i=0; i<predators.length; i++){
+
+//stats
+predator_ave_hunt_speed += predators[i]._hunt_speed/predators.length;
+predator_ave_wander_speed += predators[i]._wander_speed/predators.length;
+predator_ave_fov += predators[i]._fov/predators.length;
+predator_ave_smell += predators[i]._smell/predators.length;
+predator_ave_wander += predators[i]._wander/predators.length;
+predator_ave_mass += predators[i]._mass/predators.length;
+
+predators[i].draw();
+final_predator_params = [predators[i]._fov,predators[i]._smell,predators[i]._wander,predators[i]._mass,predators[i]._wander_speed,predators[i]._hunt_speed].map(num => num*(1+(Math.random()-0.5)*predators[i]._evo));
+predators[i].live(i,predators,prey);
+
+}
+
+if(predators.length <= 1){
+	for(let i=0;i<starting_predators;i++){
+		predators.push(new Predator(Math.min(final_predator_params[0],2*Math.PI),final_predator_params[1],final_predator_params[2],final_predator_params[3],final_predator_params[4],final_predator_params[5],0,0));
+	}
+
+}
+
+var prey_ave_hunt_speed = 0;
+var prey_ave_wander_speed = 0;
+var prey_ave_fov = 0;
+var prey_ave_smell = 0;
+var prey_ave_wander = 0;
+var prey_ave_mass = 0;
+
+for(let i=0; i<prey.length; i++){
+
+//stats
+prey_ave_hunt_speed += prey[i]._hunt_speed/prey.length;
+prey_ave_wander_speed += prey[i]._wander_speed/prey.length;
+prey_ave_fov += prey[i]._fov/prey.length;
+prey_ave_smell += prey[i]._smell/prey.length;
+prey_ave_wander += prey[i]._wander/prey.length;
+prey_ave_mass += prey[i]._mass/prey.length;
+
+
+prey[i].draw();
+final_prey_params = [prey[i]._fov,prey[i]._smell,prey[i]._wander,prey[i]._mass,prey[i]._wander_speed,prey[i]._hunt_speed].map(num => num*(1+(Math.random()-0.5)*prey[i]._evo));
+prey[i].live(i,predators,prey,land);
+
+}
+
+document.getElementById("out").innerHTML = "Number of Predators: " + predators.length + "  Number of Prey: " + prey.length;
+
+if(prey.length <= 1){
+	predators.splice(0,Math.max(0,predators.length-starting_predators));
+	for(let i=0;i<starting_prey;i++){
+		prey.push(new Prey(2*Math.PI,final_prey_params[1],final_prey_params[2],final_prey_params[3],final_prey_params[4],final_prey_params[5],200,200));
+	}
+
+}
+
+document.getElementById("statsPredator").innerHTML = "Predator Stats:    Average Hunt Speed: " + predator_ave_hunt_speed.toFixed(2) + " Average Wander Speed: " + predator_ave_wander_speed.toFixed(2) + " Average FOV: " + Math.round(180*predator_ave_fov/Math.PI) + " Average Smell Range: " + predator_ave_smell.toFixed(2) + " Average Wander Probability: " + predator_ave_wander.toFixed(2) + " Average Mass: " + predator_ave_mass.toFixed(2);
+document.getElementById("statsPrey").innerHTML = "Prey Stats:    Average Hunt Speed: " + prey_ave_hunt_speed.toFixed(2) + " Average Wander Speed: " + prey_ave_wander_speed.toFixed(2) + " Average FOV: " + Math.round(180*prey_ave_fov/Math.PI) + " Average Smell Range: " + prey_ave_smell.toFixed(2) + " Average Wander Probability: " + prey_ave_wander.toFixed(2) + " Average Mass: " + prey_ave_mass.toFixed(2);
+
+if(graph == true){
+
+//Graph populations
+prey_pop.push(Math.log(prey.length));
+predator_pop.push(Math.log(predators.length));
+xValues.push(t);
+
+if(t>10000*dt){
+prey_pop.shift();
+predator_pop.shift();
+xValues.shift();
+}
+
+t++;
+
+new Chart("myChart", {
+  type: "line",
+  data: {
+    labels: xValues,
+    datasets: [{
+      data: prey_pop,
+      borderColor: "green",
+      fill: false
+    },{
+      data: predator_pop,
+      borderColor: "red",
+      fill: false
+    }]
+  },
+  options: {
+    animation: false,
+    legend: {display: false},
+    elements: {point:{radius: 0}},
+     scales: { xAxes: [{ ticks: { display: false }, gridLines: { display: false }}], yAxes: [{ ticks: { display: false },gridLines: { display: false } }]},
+    //scales: { y: { max: Math.max(...predator_pop,...prey_pop) }} ,
+    //datalabels: {display: false}
+  }
+
+});
+}
+requestAnimationFrame(drawPredPrey);
+
+}
+
+drawPredPrey();
+
+</script>
